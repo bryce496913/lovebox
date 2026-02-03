@@ -8,17 +8,17 @@
     .row { display:flex; gap:16px; flex-wrap:wrap; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 18px; flex: 1; min-width: 300px; }
     textarea, select, input { width: 100%; padding: 12px; font-size: 16px; margin-top: 8px; }
-    button { margin-top: 12px; padding: 12px 14px; font-size: 16px; border-radius: 10px; border: 0; background: #111; color: #fff; width: 100%; }
+    button { margin-top: 12px; padding: 12px 14px; font-size: 16px; border-radius: 10px; border: 0; background: #111; color: #fff; width: 100%; cursor:pointer; }
     .small { font-size: 13px; color:#666; }
     .status { margin-top: 14px; padding: 10px; background:#f6f6f6; border-radius: 10px; }
-    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
     .evt { background:#0b5; }
     .evt2 { background:#07a; }
   </style>
 </head>
 <body>
   <h2>Send to a Love Box</h2>
-  <p class="small">No history. Only the most recent pending message/event is stored.</p>
+  <p class="small">No history. Only the most recent pending message/event is stored (overwrites previous).</p>
 
   <div class="row">
     <div class="card">
