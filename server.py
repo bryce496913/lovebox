@@ -2,8 +2,7 @@ import os
 import sqlite3
 import time
 import secrets
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session
-
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, abort
 
 # =========================
 # CONFIG (from Environment)
@@ -18,13 +17,25 @@ BOX2_TOKEN = os.environ.get("BOX2_TOKEN", "dev_token_box2")
 
 DB_PATH = os.environ.get("DB_PATH", "lovebox.db")
 
+# =========================
+# FORCE TEMPLATE PATH
+# =========================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 
-# =========================
-# APP
-# =========================
-app = Flask(__name__)
+# Optional: allow debug route to show what's deployed
+DEBUG_TEMPLATES = os.environ.get("DEBUG_TEMPLATES", "0") == "1"
+
+app = Flask(__name__, template_folder=TEMPLATE_DIR)
 app.secret_key = APP_SECRET
 
+print("---- LoveBox Boot ----")
+print("BASE_DIR:", BASE_DIR)
+print("TEMPLATE_DIR:", TEMPLATE_DIR)
+try:
+    print("templates/ contents:", os.listdir(TEMPLATE_DIR))
+except Exception as e:
+    print("templates/ not readable:", repr(e))
 
 # =========================
 # DB Helpers
@@ -34,10 +45,10 @@ def db():
     conn.row_factory = sqlite3.Row
     return conn
 
-
 def init_db():
     conn = db()
-    with open("schema.sql", "r", encoding="utf-8") as f:
+    schema_path = os.path.join(BASE_DIR, "schema.sql")
+    with open(schema_path, "r", encoding="utf-8") as f:
         conn.executescript(f.read())
     conn.commit()
 
@@ -57,20 +68,16 @@ def init_db():
     conn.commit()
     conn.close()
 
-
-# Initialize DB at import time (so gunicorn also initializes it)
+# Initialize DB at import time
 try:
     init_db()
 except Exception as e:
-    # Render logs will show this if schema file missing, etc.
     print("DB init failed:", e)
-
 
 # =========================
 # Auth / Routing Rules
 # =========================
 def auth_box(box_id: str, token: str):
-    """Validate a device by box_id + token, return dict {box_id, paired_to} or None."""
     conn = db()
     row = conn.execute(
         "SELECT box_id, token, paired_to FROM devices WHERE box_id = ?",
@@ -82,15 +89,9 @@ def auth_box(box_id: str, token: str):
         return None
     if row["token"] != token:
         return None
-
     return {"box_id": row["box_id"], "paired_to": row["paired_to"]}
 
-
 def put_inbox(target_box_id: str, msg_type: str, msg_text: str = None, msg_event: str = None):
-    """
-    Store exactly ONE pending item per box (overwrites any previous pending item).
-    msg_type: "text" or "event"
-    """
     conn = db()
     msg_id = secrets.token_hex(8)
     now = int(time.time())
@@ -102,6 +103,28 @@ def put_inbox(target_box_id: str, msg_type: str, msg_text: str = None, msg_event
     conn.close()
     return msg_id
 
+# =========================
+# Debug route (optional)
+# =========================
+@app.get("/debug/templates")
+def debug_templates():
+    if not DEBUG_TEMPLATES:
+        abort(404)
+    out = {
+        "BASE_DIR": BASE_DIR,
+        "TEMPLATE_DIR": TEMPLATE_DIR,
+        "templates_exists": os.path.isdir(TEMPLATE_DIR),
+        "templates_list": [],
+    }
+    try:
+        out["templates_list"] = os.listdir(TEMPLATE_DIR)
+    except Exception as e:
+        out["templates_error"] = repr(e)
+    return jsonify(out)
+
+@app.get("/health")
+def health():
+    return jsonify({"ok": True})
 
 # =========================
 # Web UI
@@ -112,11 +135,9 @@ def root():
         return redirect(url_for("send_page"))
     return redirect(url_for("login_page"))
 
-
 @app.get("/login")
 def login_page():
     return render_template("login.html")
-
 
 @app.post("/login")
 def login_post():
@@ -126,13 +147,11 @@ def login_post():
         return redirect(url_for("send_page"))
     return render_template("login.html", error="Wrong password")
 
-
 @app.get("/send")
 def send_page():
     if not session.get("logged_in"):
         return redirect(url_for("login_page"))
     return render_template("send.html", box1=BOX1_ID, box2=BOX2_ID)
-
 
 @app.post("/send")
 def send_post():
@@ -156,16 +175,11 @@ def send_post():
     put_inbox(target, "text", msg_text=text)
     return render_template("send.html", box1=BOX1_ID, box2=BOX2_ID, status=f"Sent message → {target}")
 
-
 # =========================
 # API for Love Boxes
 # =========================
 @app.post("/api/register")
 def api_register():
-    """
-    Love Box registers itself (auth check) and gets paired_to back.
-    POST JSON: { box_id, token }
-    """
     data = request.get_json(force=True, silent=True) or {}
     box_id = data.get("box_id", "")
     token = data.get("token", "")
@@ -174,13 +188,8 @@ def api_register():
         return jsonify({"ok": False, "error": "auth_failed"}), 401
     return jsonify({"ok": True, "paired_to": info["paired_to"]})
 
-
 @app.get("/api/check")
 def api_check():
-    """
-    Love Box polls for a pending message/event.
-    GET params: box_id, token
-    """
     box_id = request.args.get("box_id", "")
     token = request.args.get("token", "")
     info = auth_box(box_id, token)
@@ -198,19 +207,14 @@ def api_check():
         "ok": True,
         "has": True,
         "msg_id": row["msg_id"],
-        "type": row["msg_type"],      # "text" | "event"
+        "type": row["msg_type"],
         "text": row["msg_text"],
         "event": row["msg_event"],
         "created_at": row["created_at"],
     })
 
-
 @app.post("/api/ack")
 def api_ack():
-    """
-    Love Box acknowledges it processed msg_id.
-    POST JSON: { box_id, token, msg_id }
-    """
     data = request.get_json(force=True, silent=True) or {}
     box_id = data.get("box_id", "")
     token = data.get("token", "")
@@ -229,16 +233,10 @@ def api_ack():
         )
         conn.commit()
     conn.close()
-
     return jsonify({"ok": True})
-
 
 @app.post("/api/send_event")
 def api_send_event():
-    """
-    Love Box sends a button-trigger event to its paired box.
-    POST JSON: { box_id, token, event }
-    """
     data = request.get_json(force=True, silent=True) or {}
     box_id = data.get("box_id", "")
     token = data.get("token", "")
@@ -256,12 +254,5 @@ def api_send_event():
     put_inbox(target, "event", msg_event=event)
     return jsonify({"ok": True, "sent_to": target})
 
-
-# For local dev only
 if __name__ == "__main__":
-    # init_db() already attempted at import; safe to call again locally
-    try:
-        init_db()
-    except Exception as e:
-        print("DB init failed:", e)
     app.run(host="0.0.0.0", port=5000, debug=True)
