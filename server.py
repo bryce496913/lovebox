@@ -2,7 +2,7 @@ import os
 import sqlite3
 import time
 import secrets
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, abort
+from flask import Flask, request, jsonify, redirect, url_for, session, render_template_string
 
 # =========================
 # CONFIG (from Environment)
@@ -17,25 +17,109 @@ BOX2_TOKEN = os.environ.get("BOX2_TOKEN", "dev_token_box2")
 
 DB_PATH = os.environ.get("DB_PATH", "lovebox.db")
 
-# =========================
-# FORCE TEMPLATE PATH
-# =========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 
-# Optional: allow debug route to show what's deployed
-DEBUG_TEMPLATES = os.environ.get("DEBUG_TEMPLATES", "0") == "1"
+# =========================
+# INLINE HTML (NO TEMPLATES)
+# =========================
+LOGIN_HTML = """<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Love Box Login</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 18px; }
+    input { width: 100%; padding: 12px; font-size: 16px; margin-top: 8px; }
+    button { margin-top: 12px; padding: 12px 14px; font-size: 16px; border-radius: 10px; border: 0; background: #111; color: #fff; width: 100%; }
+    .err { color: #b00020; margin-top: 10px; }
+    .small { font-size: 13px; color:#666; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Love Box</h2>
+    <p>Enter password to send messages.</p>
+    <form method="post" action="/login">
+      <input type="password" name="password" placeholder="Password" required />
+      <button type="submit">Login</button>
+    </form>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <div class="small">Tip: bookmark <code>/send</code> after logging in.</div>
+  </div>
+</body>
+</html>
+"""
 
-app = Flask(__name__, template_folder=TEMPLATE_DIR)
+SEND_HTML = """<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Send Love Box Message</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; }
+    .row { display:flex; gap:16px; flex-wrap:wrap; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 18px; flex: 1; min-width: 300px; }
+    textarea, select, input { width: 100%; padding: 12px; font-size: 16px; margin-top: 8px; }
+    button { margin-top: 12px; padding: 12px 14px; font-size: 16px; border-radius: 10px; border: 0; background: #111; color: #fff; width: 100%; cursor:pointer; }
+    .small { font-size: 13px; color:#666; }
+    .status { margin-top: 14px; padding: 10px; background:#f6f6f6; border-radius: 10px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+    .evt { background:#0b5; }
+    .evt2 { background:#07a; }
+  </style>
+</head>
+<body>
+  <h2>Send to a Love Box</h2>
+  <p class="small">No history. Only the most recent pending message/event is stored (overwrites previous).</p>
+
+  <div class="row">
+    <div class="card">
+      <form method="post" action="/send">
+        <label>Target box</label>
+        <select name="target" required>
+          <option value="{{ box1 }}">{{ box1 }}</option>
+          <option value="{{ box2 }}">{{ box2 }}</option>
+        </select>
+
+        <label style="margin-top:12px; display:block;">Message</label>
+        <textarea name="text" rows="4" placeholder="Type something sweet… (supports [HEART] etc)"></textarea>
+
+        <button type="submit">Send Message</button>
+      </form>
+
+      {% if status %}<div class="status">{{ status }}</div>{% endif %}
+    </div>
+
+    <div class="card">
+      <form method="post" action="/send">
+        <label>Target box</label>
+        <select name="target" required>
+          <option value="{{ box1 }}">{{ box1 }}</option>
+          <option value="{{ box2 }}">{{ box2 }}</option>
+        </select>
+
+        <input type="hidden" name="text" value="" />
+        <label style="margin-top:12px; display:block;">Quick Events</label>
+
+        <div class="grid">
+          <button class="evt"  name="event" value="heartbeat" type="submit">❤️ Heartbeat</button>
+          <button class="evt2" name="event" value="rainbow"   type="submit">🌈 Rainbow</button>
+          <button class="evt2" name="event" value="breathe"   type="submit">😌 Breathe</button>
+          <button class="evt"  name="event" value="ping"      type="submit">✨ Ping</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+# =========================
+# APP
+# =========================
+app = Flask(__name__)
 app.secret_key = APP_SECRET
-
-print("---- LoveBox Boot ----")
-print("BASE_DIR:", BASE_DIR)
-print("TEMPLATE_DIR:", TEMPLATE_DIR)
-try:
-    print("templates/ contents:", os.listdir(TEMPLATE_DIR))
-except Exception as e:
-    print("templates/ not readable:", repr(e))
 
 # =========================
 # DB Helpers
@@ -52,7 +136,6 @@ def init_db():
         conn.executescript(f.read())
     conn.commit()
 
-    # Upsert paired devices
     conn.execute(
         "INSERT OR REPLACE INTO devices (box_id, token, paired_to) VALUES (?, ?, ?)",
         (BOX1_ID, BOX1_TOKEN, BOX2_ID),
@@ -62,17 +145,15 @@ def init_db():
         (BOX2_ID, BOX2_TOKEN, BOX1_ID),
     )
 
-    # Ensure inbox rows exist
     conn.execute("INSERT OR IGNORE INTO inbox (box_id) VALUES (?)", (BOX1_ID,))
     conn.execute("INSERT OR IGNORE INTO inbox (box_id) VALUES (?)", (BOX2_ID,))
     conn.commit()
     conn.close()
 
-# Initialize DB at import time
 try:
     init_db()
 except Exception as e:
-    print("DB init failed:", e)
+    print("DB init failed:", repr(e))
 
 # =========================
 # Auth / Routing Rules
@@ -104,30 +185,7 @@ def put_inbox(target_box_id: str, msg_type: str, msg_text: str = None, msg_event
     return msg_id
 
 # =========================
-# Debug route (optional)
-# =========================
-@app.get("/debug/templates")
-def debug_templates():
-    if not DEBUG_TEMPLATES:
-        abort(404)
-    out = {
-        "BASE_DIR": BASE_DIR,
-        "TEMPLATE_DIR": TEMPLATE_DIR,
-        "templates_exists": os.path.isdir(TEMPLATE_DIR),
-        "templates_list": [],
-    }
-    try:
-        out["templates_list"] = os.listdir(TEMPLATE_DIR)
-    except Exception as e:
-        out["templates_error"] = repr(e)
-    return jsonify(out)
-
-@app.get("/health")
-def health():
-    return jsonify({"ok": True})
-
-# =========================
-# Web UI
+# Web UI (NO templates)
 # =========================
 @app.get("/")
 def root():
@@ -137,7 +195,7 @@ def root():
 
 @app.get("/login")
 def login_page():
-    return render_template("login.html")
+    return render_template_string(LOGIN_HTML)
 
 @app.post("/login")
 def login_post():
@@ -145,13 +203,13 @@ def login_post():
     if pwd == WEB_PASSWORD:
         session["logged_in"] = True
         return redirect(url_for("send_page"))
-    return render_template("login.html", error="Wrong password")
+    return render_template_string(LOGIN_HTML, error="Wrong password")
 
 @app.get("/send")
 def send_page():
     if not session.get("logged_in"):
         return redirect(url_for("login_page"))
-    return render_template("send.html", box1=BOX1_ID, box2=BOX2_ID)
+    return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID)
 
 @app.post("/send")
 def send_post():
@@ -163,17 +221,17 @@ def send_post():
     event = (request.form.get("event", "") or "").strip()
 
     if target not in (BOX1_ID, BOX2_ID):
-        return render_template("send.html", box1=BOX1_ID, box2=BOX2_ID, status="Invalid target")
+        return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status="Invalid target")
 
     if event:
         put_inbox(target, "event", msg_event=event)
-        return render_template("send.html", box1=BOX1_ID, box2=BOX2_ID, status=f"Sent event: {event} → {target}")
+        return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status=f"Sent event: {event} → {target}")
 
     if not text:
-        return render_template("send.html", box1=BOX1_ID, box2=BOX2_ID, status="Type a message first")
+        return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status="Type a message first")
 
     put_inbox(target, "text", msg_text=text)
-    return render_template("send.html", box1=BOX1_ID, box2=BOX2_ID, status=f"Sent message → {target}")
+    return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status=f"Sent message → {target}")
 
 # =========================
 # API for Love Boxes
@@ -233,6 +291,7 @@ def api_ack():
         )
         conn.commit()
     conn.close()
+
     return jsonify({"ok": True})
 
 @app.post("/api/send_event")
@@ -253,6 +312,10 @@ def api_send_event():
     target = info["paired_to"]
     put_inbox(target, "event", msg_event=event)
     return jsonify({"ok": True, "sent_to": target})
+
+@app.get("/health")
+def health():
+    return jsonify({"ok": True})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
