@@ -67,6 +67,9 @@ SEND_HTML = """<!doctype html>
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
     .evt { background:#0b5; }
     .evt2 { background:#07a; }
+    .inline { display:flex; gap:10px; align-items:center; }
+    .inline select { flex: 1; }
+    .inline button { width:auto; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -75,7 +78,7 @@ SEND_HTML = """<!doctype html>
 
   <div class="row">
     <div class="card">
-      <form method="post" action="/send">
+      <form method="post" action="/send" id="msgForm">
         <label>Target box</label>
         <select name="target" required>
           <option value="{{ box1 }}">{{ box1 }}</option>
@@ -83,7 +86,30 @@ SEND_HTML = """<!doctype html>
         </select>
 
         <label style="margin-top:12px; display:block;">Message</label>
-        <textarea name="text" rows="4" placeholder="Type something sweet… (supports [HEART] etc)"></textarea>
+        <textarea id="messageBox" name="text" rows="4" placeholder="Type something sweet…"></textarea>
+
+        <label style="margin-top:12px; display:block;">Emoji picker</label>
+        <div class="inline">
+          <select id="emojiSelect">
+            <option value="">Select an emoji…</option>
+            <option value="[BEER]">🍺 BEER</option>
+            <option value="[BREAD]">🍞 BREAD</option>
+            <option value="[CRY]">😭 CRY</option>
+            <option value="[GLIZZY]">🌭 GLIZZY</option>
+            <option value="[HEART]">❤️ HEART</option>
+            <option value="[JOY]">🥹 JOY</option>
+            <option value="[KISS]">😘 KISS</option>
+            <option value="[LOVE]">🥰 LOVE</option>
+            <option value="[MAIL]">📫 MAIL</option>
+            <option value="[PANDA]">🐼 PANDA</option>
+            <option value="[SMILE]">😀 SMILE</option>
+            <option value="[SUSHI]">🍣 SUSHI</option>
+            <option value="[UPSIDEDOWN]">🙃 UPSIDEDOWN</option>
+            <option value="[WORM]">🪱 WORM</option>
+          </select>
+
+          <button type="button" onclick="insertEmoji()">Insert</button>
+        </div>
 
         <button type="submit">Send Message</button>
       </form>
@@ -111,6 +137,30 @@ SEND_HTML = """<!doctype html>
       </form>
     </div>
   </div>
+
+  <script>
+    function insertEmoji() {
+      const select = document.getElementById("emojiSelect");
+      const tag = select.value;
+      if (!tag) return;
+
+      const box = document.getElementById("messageBox");
+
+      // Insert at cursor position if possible
+      const start = box.selectionStart ?? box.value.length;
+      const end = box.selectionEnd ?? box.value.length;
+
+      box.value = box.value.slice(0, start) + tag + box.value.slice(end);
+      box.focus();
+
+      // Move cursor after inserted tag
+      const newPos = start + tag.length;
+      box.setSelectionRange(newPos, newPos);
+
+      // Reset dropdown
+      select.value = "";
+    }
+  </script>
 </body>
 </html>
 """
@@ -319,3 +369,4 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
