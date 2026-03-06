@@ -24,129 +24,284 @@ MAX_QUEUE = 5  # per box
 # =========================
 # INLINE HTML (NO TEMPLATES)
 # =========================
-COMMON_CSS = """
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --bg:#0b0712;
-    --panel:#120a1f;
-    --panel2:#170c28;
-    --border:#2b1843;
-    --text:#ffffff;
-    --muted:#bca9d6;
-    --purple:#7c3aed;
-    --pink:#ec4899;
-    --ok:#22c55e;
-    --warn:#f59e0b;
-  }
-  *{ box-sizing:border-box; }
-  body{
-    margin:0;
-    font-family:'Poppins',system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-    background:radial-gradient(900px 600px at 20% 10%, #1a0e2e 0%, var(--bg) 55%, #07040d 100%);
-    color:var(--text);
-    padding:18px;
-  }
-  .wrap{ max-width:760px; margin:0 auto; }
-  .title{ font-size:24px; font-weight:700; letter-spacing:.4px; margin:6px 0 4px; }
-  .sub{ color:var(--muted); font-size:13px; margin:0 0 14px; }
-  .grid{ display:grid; gap:14px; }
-  @media(min-width:760px){ .grid{ grid-template-columns: 1fr 1fr; } }
-  .card{
-    background:linear-gradient(180deg, var(--panel) 0%, var(--panel2) 100%);
-    border:1px solid var(--border);
-    border-radius:16px;
-    padding:16px;
-    box-shadow: 0 10px 30px rgba(0,0,0,.35);
-  }
-  label{ display:block; font-size:12px; color:var(--muted); margin-top:10px; }
-  input, textarea, select{
-    width:100%;
-    margin-top:8px;
-    padding:12px 12px;
-    border-radius:12px;
-    border:1px solid var(--border);
-    background:#0a0613;
-    color:var(--text);
-    outline:none;
-    font-size:14px;
-  }
-  textarea{ min-height:108px; resize:vertical; }
-  .btn{
-    width:100%;
-    margin-top:12px;
-    padding:12px 14px;
-    border-radius:12px;
-    border:0;
-    font-weight:700;
-    color:white;
-    cursor:pointer;
-    background:linear-gradient(90deg, var(--purple), var(--pink));
-    box-shadow: 0 10px 24px rgba(236,72,153,.18);
-  }
-  .btn:active{ transform: translateY(1px); }
-  .row{ display:flex; gap:10px; align-items:center; }
-  .row > * { flex: 1; }
-  .btnSmall{
-    flex:0 0 auto;
-    padding:12px 12px;
-    border-radius:12px;
-    border:1px solid var(--border);
-    background:#0a0613;
-    color:var(--text);
-    font-weight:700;
-    cursor:pointer;
-  }
-  .pill{
-    display:inline-block;
-    padding:6px 10px;
-    border-radius:999px;
-    border:1px solid var(--border);
-    background:#0a0613;
-    font-size:12px;
-    color:var(--muted);
-  }
-  .status{
-    margin-top:12px;
-    padding:12px;
-    border-radius:14px;
-    border:1px solid var(--border);
-    background:#0a0613;
-  }
-  .k{ color:var(--muted); font-size:12px; }
-  .v{ font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size:12px; }
-  .err{ color:#ff4d6d; font-size:13px; margin-top:10px; }
-  .divider{ height:1px; background:rgba(124,58,237,.35); margin:14px 0; }
-  .events{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
-  .evt{
-    padding:12px 12px;
-    border-radius:14px;
-    border:1px solid var(--border);
-    background:#0a0613;
-    color:white;
-    font-weight:700;
-    cursor:pointer;
-  }
-  .evt.p{ border-color:rgba(124,58,237,.6); }
-  .evt.k{ border-color:rgba(236,72,153,.6); }
-  code{ color:#fff; }
-</style>
+
+THEME_HEAD = """
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg: #07060a;          /* near-black */
+      --panel: #0f0b16;       /* dark purple-black */
+      --panel2: #120d1c;
+      --text: #ffffff;
+      --muted: rgba(255,255,255,.72);
+      --muted2: rgba(255,255,255,.55);
+      --border: rgba(255,255,255,.10);
+
+      --purple: #7c3aed;      /* violet */
+      --pink: #ff4fd8;        /* neon pink */
+      --pink2:#ff2fbf;
+
+      --ok: #22c55e;
+      --bad: #ef4444;
+      --warn:#fbbf24;
+
+      --radius: 16px;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --shadow2: 0 1px 0 rgba(255,255,255,.05) inset;
+
+      --ring: 0 0 0 3px rgba(255,79,216,.25);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: "Poppins", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background:
+        radial-gradient(900px 420px at 15% 0%, rgba(124,58,237,.22), transparent 55%),
+        radial-gradient(900px 420px at 85% 0%, rgba(255,79,216,.18), transparent 55%),
+        linear-gradient(180deg, #06050a, var(--bg));
+      color: var(--text);
+    }
+
+    .wrap{
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 22px 14px 48px;
+    }
+
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin: 8px 0 14px;
+    }
+    .logo{
+      width: 38px; height: 38px;
+      border-radius: 12px;
+      background:
+        linear-gradient(135deg, rgba(124,58,237,.95), rgba(255,79,216,.95));
+      box-shadow: var(--shadow);
+    }
+    h1, h2{
+      margin: 0;
+      letter-spacing: -0.02em;
+    }
+    h1{ font-size: 20px; font-weight: 700; }
+    h2{ font-size: 18px; font-weight: 700; }
+
+    .sub{
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .grid{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    @media (min-width: 860px){
+      .grid{ grid-template-columns: 1.25fr .75fr; gap: 16px; }
+    }
+
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow), var(--shadow2);
+      padding: 16px;
+    }
+
+    label{
+      display:block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-top: 12px;
+      margin-bottom: 6px;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+
+    input, textarea, select{
+      width: 100%;
+      padding: 12px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(10,8,14,.75);
+      color: var(--text);
+      outline: none;
+      font-size: 15px;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.2) inset;
+    }
+    textarea{ min-height: 120px; resize: vertical; }
+    input::placeholder, textarea::placeholder{ color: rgba(255,255,255,.45); }
+
+    input:focus, textarea:focus, select:focus{
+      border-color: rgba(255,79,216,.55);
+      box-shadow: var(--ring);
+    }
+
+    .row{
+      display:flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .btn{
+      width: 100%;
+      padding: 12px 14px;
+      border: 0;
+      border-radius: 14px;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      color: white;
+      background: linear-gradient(135deg, rgba(124,58,237,1), rgba(255,79,216,1));
+      box-shadow: 0 10px 24px rgba(124,58,237,.14), 0 10px 24px rgba(255,79,216,.10);
+      transition: transform .06s ease, filter .12s ease;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active{ transform: translateY(1px); filter: brightness(.98); }
+
+    .btn.secondary{
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.14);
+      box-shadow: none;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .btn.ghost{
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: none;
+      font-weight: 700;
+    }
+
+    .btn.small{
+      width: auto;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 14px;
+    }
+
+    .inline{
+      display:flex;
+      gap:10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .inline select{ flex: 1; min-width: 220px; }
+    .inline .btn.small{ flex: 0 0 auto; }
+
+    .status{
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.28);
+      border: 1px solid rgba(255,255,255,.10);
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.10);
+    }
+
+    code{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: rgba(0,0,0,.35);
+      border: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.9);
+    }
+
+    .small{
+      font-size: 12px;
+      color: var(--muted2);
+      margin-top: 10px;
+      line-height: 1.35;
+    }
+
+    .err{
+      margin-top: 10px;
+      color: #ffd1dc;
+      background: rgba(239,68,68,.12);
+      border: 1px solid rgba(239,68,68,.20);
+      padding: 10px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .eventGrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .eventBtn{
+      padding: 12px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.06);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .06s ease, filter .12s ease;
+    }
+    .eventBtn:active{ transform: translateY(1px); }
+
+    .eventBtn.pink{
+      background: linear-gradient(135deg, rgba(255,79,216,1), rgba(124,58,237,1));
+      border: 0;
+    }
+
+    .hintRow{
+      display:flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .hintRow .small{ margin-top: 0; }
+  </style>
 """
 
 LOGIN_HTML = f"""<!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Love Box Login</title>
-  {COMMON_CSS}
+{THEME_HEAD}
+  <title>Love Box • Login</title>
 </head>
 <body>
   <div class="wrap">
-    <div class="title">Love Box</div>
-    <p class="sub">Enter password to send messages.</p>
+    <div class="brand">
+      <div class="logo" aria-hidden="true"></div>
+      <div>
+        <h1>Love Box</h1>
+        <div class="sub">Enter the password to send messages & events.</div>
+      </div>
+    </div>
 
     <div class="card">
       <form method="post" action="/login">
@@ -154,9 +309,10 @@ LOGIN_HTML = f"""<!doctype html>
         <input type="password" name="password" placeholder="Password" required />
         <button class="btn" type="submit">Login</button>
       </form>
+
       {{% if error %}}<div class="err">{{{{ error }}}}</div>{{% endif %}}
-      <div class="divider"></div>
-      <div class="sub">Tip: bookmark <code>/send</code> after logging in.</div>
+
+      <div class="small">Tip: bookmark <code>/send</code> after logging in.</div>
     </div>
   </div>
 </body>
@@ -166,19 +322,26 @@ LOGIN_HTML = f"""<!doctype html>
 SEND_HTML = f"""<!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Send Love Box Message</title>
-  {COMMON_CSS}
+{THEME_HEAD}
+  <title>Love Box • Send</title>
 </head>
 <body>
   <div class="wrap">
-    <div class="title">Send to a Love Box</div>
-    <p class="sub">Queue v2: up to 5 pending per box. Status: Sent → Delivered → Seen.</p>
+    <div class="brand">
+      <div class="logo" aria-hidden="true"></div>
+      <div>
+        <h1>Send Love</h1>
+        <div class="sub">Queue v2 (max {MAX_QUEUE}). Status: Sent → Delivered → Seen.</div>
+      </div>
+    </div>
 
     <div class="grid">
+      <!-- LEFT: Message -->
       <div class="card">
-        <form method="post" action="/send">
+        <h2>Message</h2>
+        <div class="sub">Pick a box, write a message, drop an emoji tag, send.</div>
+
+        <form method="post" action="/send" id="msgForm">
           <label>Target box</label>
           <select name="target" required>
             <option value="{{{{ box1 }}}}">{{{{ box1 }}}}</option>
@@ -186,10 +349,10 @@ SEND_HTML = f"""<!doctype html>
           </select>
 
           <label>Message</label>
-          <textarea id="messageBox" name="text" placeholder="Type something sweet…"></textarea>
+          <textarea id="messageBox" name="text" rows="4" placeholder="Type something sweet…"></textarea>
 
           <label>Emoji picker</label>
-          <div class="row">
+          <div class="inline">
             <select id="emojiSelect">
               <option value="">Select an emoji…</option>
               <option value="[BEER]">🍺 BEER</option>
@@ -202,16 +365,13 @@ SEND_HTML = f"""<!doctype html>
               <option value="[LOVE]">🥰 LOVE</option>
               <option value="[MAIL]">📫 MAIL</option>
               <option value="[PANDA]">🐼 PANDA</option>
-              <option value="[PARTY]">🎉 PARTY</option>
               <option value="[SMILE]">😀 SMILE</option>
               <option value="[SUSHI]">🍣 SUSHI</option>
               <option value="[UPSIDEDOWN]">🙃 UPSIDEDOWN</option>
               <option value="[WORM]">🪱 WORM</option>
-              <option value="[MOON]">🌙 MOON</option>
-              <option value="[SUN]">☀️ SUN</option>
-              <option value="[RAINBOW]">🌈 RAINBOW</option>
             </select>
-            <button class="btnSmall" type="button" onclick="insertEmoji()">Insert</button>
+
+            <button class="btn ghost small" type="button" onclick="insertEmoji()">Insert</button>
           </div>
 
           <button class="btn" type="submit">Send Message</button>
@@ -219,19 +379,22 @@ SEND_HTML = f"""<!doctype html>
 
         {{% if msg_id %}}
           <div class="status">
-            <div><span class="k">Message ID:</span> <span class="v" id="msgId">{{{{ msg_id }}}}</span></div>
-            <div style="margin-top:10px;">
-              <span class="k">Status:</span>
-              <span class="pill" id="statusPill">{{{{ status_text }}}}</span>
+            <div class="hintRow">
+              <div class="small"><strong>Message ID:</strong> <code id="msgId">{{{{ msg_id }}}}</code></div>
+              <div class="small"><strong>Status:</strong> <span class="pill" id="statusPill">{{{{ status_text }}}}</span></div>
             </div>
-            <div class="sub" style="margin-top:10px;">This updates automatically.</div>
+            <div class="small">This updates automatically.</div>
           </div>
         {{% elif status_text %}}
           <div class="status"><span class="pill">{{{{ status_text }}}}</span></div>
         {{% endif %}}
       </div>
 
+      <!-- RIGHT: Events -->
       <div class="card">
+        <h2>Quick Events</h2>
+        <div class="sub">Send a quick animation trigger.</div>
+
         <form method="post" action="/send">
           <label>Target box</label>
           <select name="target" required>
@@ -240,22 +403,24 @@ SEND_HTML = f"""<!doctype html>
           </select>
 
           <input type="hidden" name="text" value="" />
-          <label>Quick Events</label>
 
-          <div class="events">
-            <button class="evt p" name="event" value="heartbeat" type="submit">❤️ Heartbeat</button>
-            <button class="evt k" name="event" value="rainbow"   type="submit">🌈 Rainbow</button>
-            <button class="evt k" name="event" value="breathe"   type="submit">😌 Breathe</button>
-            <button class="evt p" name="event" value="ping"      type="submit">✨ Ping</button>
+          <div class="eventGrid">
+            <button class="eventBtn pink"  name="event" value="heartbeat" type="submit">❤️ Heartbeat</button>
+            <button class="eventBtn"       name="event" value="rainbow"   type="submit">🌈 Rainbow</button>
+            <button class="eventBtn"       name="event" value="breathe"   type="submit">😌 Breathe</button>
+            <button class="eventBtn pink"  name="event" value="ping"      type="submit">✨ Ping</button>
+          </div>
+
+          <div class="small" style="margin-top:12px;">
+            Tip: emojis render on the box as tags like <code>[HEART]</code>.
           </div>
         </form>
       </div>
     </div>
-
   </div>
 
   <script>
-    function insertEmoji() {
+    function insertEmoji() {{
       const select = document.getElementById("emojiSelect");
       const tag = select.value;
       if (!tag) return;
@@ -270,34 +435,40 @@ SEND_HTML = f"""<!doctype html>
       const newPos = start + tag.length;
       box.setSelectionRange(newPos, newPos);
       select.value = "";
-    }
+    }}
 
-    async function pollStatus() {
+    async function pollStatus() {{
       const el = document.getElementById("msgId");
       const pill = document.getElementById("statusPill");
       if (!el || !pill) return;
       const msgId = el.textContent.trim();
       if (!msgId) return;
 
-      try {
+      try {{
         const r = await fetch("/status?msg_id=" + encodeURIComponent(msgId));
         if (!r.ok) return;
         const data = await r.json();
-        if (data && data.ok) pill.textContent = (data.status || "").toUpperCase();
-      } catch (e) {}
-    }
+        if (data && data.ok) {{
+          pill.textContent = data.status.toUpperCase();
+        }}
+      }} catch (e) {{}}
+    }}
 
-    if (document.getElementById("msgId")) setInterval(pollStatus, 2000);
+    if (document.getElementById("msgId")) {{
+      setInterval(pollStatus, 2000);
+    }}
   </script>
 </body>
 </html>
 """
+
 
 # =========================
 # APP
 # =========================
 app = Flask(__name__)
 app.secret_key = APP_SECRET
+
 
 # =========================
 # DB Helpers
@@ -308,6 +479,7 @@ def db():
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
+
 
 def init_db():
     conn = db()
@@ -327,50 +499,71 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 def auth_box(box_id: str, token: str):
     conn = db()
-    row = conn.execute("SELECT box_id, token, paired_to FROM devices WHERE box_id=?", (box_id,)).fetchone()
+    row = conn.execute(
+        "SELECT box_id, token, paired_to FROM devices WHERE box_id = ?",
+        (box_id,),
+    ).fetchone()
     conn.close()
-    if (not row) or (row["token"] != token):
+
+    if not row:
+        return None
+    if row["token"] != token:
         return None
     return {"box_id": row["box_id"], "paired_to": row["paired_to"]}
 
+
 def prune_queue(to_box: str):
+    """
+    Keep total messages for to_box <= MAX_QUEUE.
+    Delete oldest SEEN first, then oldest overall if needed.
+    """
     conn = db()
-    total = conn.execute("SELECT COUNT(*) AS c FROM messages WHERE to_box=?", (to_box,)).fetchone()["c"]
+    total = conn.execute(
+        "SELECT COUNT(*) AS c FROM messages WHERE to_box=?",
+        (to_box,),
+    ).fetchone()["c"]
+
     if total <= MAX_QUEUE:
         conn.close()
         return
 
-    # delete oldest seen first
     while total > MAX_QUEUE:
-        r = conn.execute(
+        seen_row = conn.execute(
             "SELECT msg_id FROM messages WHERE to_box=? AND status='seen' ORDER BY created_at ASC LIMIT 1",
             (to_box,),
         ).fetchone()
-        if not r:
+        if seen_row:
+            conn.execute("DELETE FROM messages WHERE msg_id=?", (seen_row["msg_id"],))
+            conn.commit()
+        else:
             break
-        conn.execute("DELETE FROM messages WHERE msg_id=?", (r["msg_id"],))
-        conn.commit()
-        total = conn.execute("SELECT COUNT(*) AS c FROM messages WHERE to_box=?", (to_box,)).fetchone()["c"]
 
-    # still too many -> delete oldest overall
+        total = conn.execute(
+            "SELECT COUNT(*) AS c FROM messages WHERE to_box=?",
+            (to_box,),
+        ).fetchone()["c"]
+
     while total > MAX_QUEUE:
-        r = conn.execute(
+        row = conn.execute(
             "SELECT msg_id FROM messages WHERE to_box=? ORDER BY created_at ASC LIMIT 1",
             (to_box,),
         ).fetchone()
-        if not r:
+        if not row:
             break
-        conn.execute("DELETE FROM messages WHERE msg_id=?", (r["msg_id"],))
+        conn.execute("DELETE FROM messages WHERE msg_id=?", (row["msg_id"],))
         conn.commit()
         total -= 1
 
     conn.close()
 
+
 def create_message(to_box: str, from_source: str, msg_type: str, msg_text: str = None, msg_event: str = None):
     msg_id = secrets.token_hex(8)
     now = int(time.time())
+
     conn = db()
     conn.execute(
         """
@@ -381,31 +574,40 @@ def create_message(to_box: str, from_source: str, msg_type: str, msg_text: str =
     )
     conn.commit()
     conn.close()
+
     prune_queue(to_box)
     return msg_id
+
 
 try:
     init_db()
 except Exception as e:
     print("DB init failed:", repr(e))
 
+
 # =========================
-# Web UI
+# Web UI (session protected)
 # =========================
 @app.get("/")
 def root():
-    return redirect(url_for("send_page")) if session.get("logged_in") else redirect(url_for("login_page"))
+    if session.get("logged_in"):
+        return redirect(url_for("send_page"))
+    return redirect(url_for("login_page"))
+
 
 @app.get("/login")
 def login_page():
     return render_template_string(LOGIN_HTML)
 
+
 @app.post("/login")
 def login_post():
-    if (request.form.get("password") or "") == WEB_PASSWORD:
+    pwd = request.form.get("password", "")
+    if pwd == WEB_PASSWORD:
         session["logged_in"] = True
         return redirect(url_for("send_page"))
     return render_template_string(LOGIN_HTML, error="Wrong password")
+
 
 @app.get("/send")
 def send_page():
@@ -413,14 +615,15 @@ def send_page():
         return redirect(url_for("login_page"))
     return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID)
 
+
 @app.post("/send")
 def send_post():
     if not session.get("logged_in"):
         return redirect(url_for("login_page"))
 
     target = request.form.get("target", "")
-    text = (request.form.get("text") or "").strip()
-    event = (request.form.get("event") or "").strip()
+    text = (request.form.get("text", "") or "").strip()
+    event = (request.form.get("event", "") or "").strip()
 
     if target not in (BOX1_ID, BOX2_ID):
         return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status_text="Invalid target")
@@ -436,6 +639,7 @@ def send_post():
 
     msg_id = create_message(target, "web", "text", msg_text=text)
     return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, msg_id=msg_id, status_text="SENT")
+
 
 @app.get("/status")
 def web_status():
@@ -464,36 +668,44 @@ def web_status():
         "seen_at": row["seen_at"],
     })
 
+
 # =========================
-# API
+# API for Love Boxes
 # =========================
 @app.post("/api/register")
 def api_register():
     data = request.get_json(force=True, silent=True) or {}
-    info = auth_box(data.get("box_id", ""), data.get("token", ""))
+    box_id = data.get("box_id", "")
+    token = data.get("token", "")
+    info = auth_box(box_id, token)
     if not info:
         return jsonify({"ok": False, "error": "auth_failed"}), 401
     return jsonify({"ok": True, "paired_to": info["paired_to"]})
+
 
 @app.get("/api/pending_count")
 def api_pending_count():
     box_id = request.args.get("box_id", "")
     token = request.args.get("token", "")
-    if not auth_box(box_id, token):
+    info = auth_box(box_id, token)
+    if not info:
         return jsonify({"ok": False, "error": "auth_failed"}), 401
+
     conn = db()
-    c = conn.execute(
+    row = conn.execute(
         "SELECT COUNT(*) AS c FROM messages WHERE to_box=? AND status IN ('sent','delivered')",
         (box_id,),
-    ).fetchone()["c"]
+    ).fetchone()
     conn.close()
-    return jsonify({"ok": True, "count": c})
+    return jsonify({"ok": True, "count": row["c"]})
+
 
 @app.get("/api/check")
 def api_check():
     box_id = request.args.get("box_id", "")
     token = request.args.get("token", "")
-    if not auth_box(box_id, token):
+    info = auth_box(box_id, token)
+    if not info:
         return jsonify({"ok": False, "error": "auth_failed"}), 401
 
     conn = db()
@@ -513,11 +725,16 @@ def api_check():
 
     now = int(time.time())
     if row["status"] == "sent":
-        conn.execute("UPDATE messages SET status='delivered', delivered_at=? WHERE msg_id=?",
-                     (now, row["msg_id"]))
+        conn.execute(
+            "UPDATE messages SET status='delivered', delivered_at=? WHERE msg_id=?",
+            (now, row["msg_id"]),
+        )
         conn.commit()
 
-    row2 = conn.execute("SELECT * FROM messages WHERE msg_id=?", (row["msg_id"],)).fetchone()
+    row2 = conn.execute(
+        "SELECT * FROM messages WHERE msg_id=?",
+        (row["msg_id"],),
+    ).fetchone()
     conn.close()
 
     return jsonify({
@@ -533,6 +750,7 @@ def api_check():
         "seen_at": row2["seen_at"],
     })
 
+
 @app.post("/api/ack")
 def api_ack():
     data = request.get_json(force=True, silent=True) or {}
@@ -540,11 +758,16 @@ def api_ack():
     token = data.get("token", "")
     msg_id = data.get("msg_id", "")
 
-    if not auth_box(box_id, token):
+    info = auth_box(box_id, token)
+    if not info:
         return jsonify({"ok": False, "error": "auth_failed"}), 401
 
     conn = db()
-    row = conn.execute("SELECT msg_id, to_box FROM messages WHERE msg_id=?", (msg_id,)).fetchone()
+    row = conn.execute(
+        "SELECT msg_id, to_box, status FROM messages WHERE msg_id=?",
+        (msg_id,),
+    ).fetchone()
+
     if not row:
         conn.close()
         return jsonify({"ok": True})
@@ -554,12 +777,16 @@ def api_ack():
         return jsonify({"ok": False, "error": "wrong_box"}), 403
 
     now = int(time.time())
-    conn.execute("UPDATE messages SET status='seen', seen_at=? WHERE msg_id=?", (now, msg_id))
+    conn.execute(
+        "UPDATE messages SET status='seen', seen_at=? WHERE msg_id=?",
+        (now, msg_id),
+    )
     conn.commit()
     conn.close()
 
     prune_queue(box_id)
     return jsonify({"ok": True})
+
 
 @app.post("/api/send_event")
 def api_send_event():
@@ -576,9 +803,15 @@ def api_send_event():
     if event not in allowed:
         return jsonify({"ok": False, "error": "bad_event", "allowed": list(allowed)}), 400
 
-    msg_id = create_message(info["paired_to"], "device", "event", msg_event=event)
-    return jsonify({"ok": True, "sent_to": info["paired_to"], "msg_id": msg_id})
+    target = info["paired_to"]
+    msg_id = create_message(target, "device", "event", msg_event=event)
+    return jsonify({"ok": True, "sent_to": target, "msg_id": msg_id})
+
 
 @app.get("/health")
 def health():
     return jsonify({"ok": True})
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
