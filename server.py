@@ -2,6 +2,8 @@ import os
 import sqlite3
 import time
 import secrets
+import hmac
+from collections import deque
 from flask import Flask, request, jsonify, redirect, url_for, session, render_template_string, abort
 
 # =========================
@@ -20,6 +22,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MAX_QUEUE = 5  # per box
 
+# Security / limits
+MAX_TEXT_LEN = 600
+MAX_FORM_LEN = 16 * 1024  # 16KB
+LOGIN_LIMIT = 10          # attempts
+LOGIN_WINDOW_S = 10 * 60  # 10 minutes
+SEND_LIMIT = 60           # requests
+SEND_WINDOW_S = 60        # 60 seconds
 
 # =========================
 # INLINE HTML (NO TEMPLATES)
@@ -149,13 +158,6 @@ THEME_HEAD = """
       box-shadow: var(--ring);
     }
 
-    .row{
-      display:flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
     .btn{
       width: 100%;
       padding: 12px 14px;
@@ -172,14 +174,6 @@ THEME_HEAD = """
       -webkit-tap-highlight-color: transparent;
     }
     .btn:active{ transform: translateY(1px); filter: brightness(.98); }
-
-    .btn.secondary{
-      background: rgba(255,255,255,.06);
-      border: 1px solid rgba(255,255,255,.14);
-      box-shadow: none;
-      font-weight: 600;
-      color: var(--text);
-    }
 
     .btn.ghost{
       background: rgba(255,255,255,.04);
@@ -305,6 +299,7 @@ LOGIN_HTML = f"""<!doctype html>
 
     <div class="card">
       <form method="post" action="/login">
+        <input type="hidden" name="csrf_token" value="{{{{ csrf_token }}}}" />
         <label>Password</label>
         <input type="password" name="password" placeholder="Password" required />
         <button class="btn" type="submit">Login</button>
@@ -342,6 +337,8 @@ SEND_HTML = f"""<!doctype html>
         <div class="sub">Pick a box, write a message, drop an emoji tag, send.</div>
 
         <form method="post" action="/send" id="msgForm">
+          <input type="hidden" name="csrf_token" value="{{{{ csrf_token }}}}" />
+
           <label>Target box</label>
           <select name="target" required>
             <option value="{{{{ box1 }}}}">{{{{ box1 }}}}</option>
@@ -364,7 +361,10 @@ SEND_HTML = f"""<!doctype html>
               <option value="[KISS]">😘 KISS</option>
               <option value="[LOVE]">🥰 LOVE</option>
               <option value="[MAIL]">📫 MAIL</option>
+              <option value="[MOON]">🌙 MOON</option>
+              <option value="[SUN]">☀️ SUN</option>
               <option value="[PANDA]">🐼 PANDA</option>
+              <option value="[PARTY]">🎉 PARTY</option>
               <option value="[SMILE]">😀 SMILE</option>
               <option value="[SUSHI]">🍣 SUSHI</option>
               <option value="[UPSIDEDOWN]">🙃 UPSIDEDOWN</option>
@@ -396,6 +396,8 @@ SEND_HTML = f"""<!doctype html>
         <div class="sub">Send a quick animation trigger.</div>
 
         <form method="post" action="/send">
+          <input type="hidden" name="csrf_token" value="{{{{ csrf_token }}}}" />
+
           <label>Target box</label>
           <select name="target" required>
             <option value="{{{{ box1 }}}}">{{{{ box1 }}}}</option>
@@ -468,6 +470,98 @@ SEND_HTML = f"""<!doctype html>
 # =========================
 app = Flask(__name__)
 app.secret_key = APP_SECRET
+app.config["MAX_CONTENT_LENGTH"] = MAX_FORM_LEN
+
+# Secure cookies (Render uses HTTPS; keep local dev usable)
+IS_RENDER = bool(os.environ.get("RENDER")) or bool(os.environ.get("RENDER_SERVICE_ID"))
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = True if IS_RENDER else False
+
+
+# =========================
+# Simple in-memory rate limiters
+# (fine for Render free plan; resets on deploy)
+# =========================
+_login_attempts = {}  # ip -> deque[timestamps]
+_send_attempts = {}   # ip -> deque[timestamps]
+
+def client_ip():
+    # Render/proxies typically send X-Forwarded-For
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.remote_addr or "unknown"
+
+def _rate_ok(bucket, key, limit, window_s):
+    now = time.time()
+    dq = bucket.get(key)
+    if dq is None:
+        dq = deque()
+        bucket[key] = dq
+    # prune old
+    while dq and (now - dq[0] > window_s):
+        dq.popleft()
+    if len(dq) >= limit:
+        return False
+    dq.append(now)
+    return True
+
+def require_login():
+    if not session.get("logged_in"):
+        return False
+    return True
+
+
+# =========================
+# CSRF
+# =========================
+def ensure_csrf():
+    tok = session.get("csrf_token")
+    if not tok:
+        tok = secrets.token_urlsafe(24)
+        session["csrf_token"] = tok
+    return tok
+
+def verify_csrf():
+    form_tok = (request.form.get("csrf_token") or "").strip()
+    sess_tok = (session.get("csrf_token") or "").strip()
+    if (not form_tok) or (not sess_tok) or (not hmac.compare_digest(form_tok, sess_tok)):
+        abort(400)
+
+@app.context_processor
+def inject_csrf():
+    return {"csrf_token": ensure_csrf()}
+
+
+# =========================
+# Security headers
+# =========================
+@app.after_request
+def add_security_headers(resp):
+    # avoid caching auth pages
+    if request.path in ("/login", "/send"):
+        resp.headers["Cache-Control"] = "no-store"
+
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+
+    # CSP tuned for: google fonts + inline style + inline script + same-origin fetch
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com data:; "
+        "script-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'; "
+        "object-src 'none'"
+    )
+    return resp
 
 
 # =========================
@@ -479,7 +573,6 @@ def db():
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
-
 
 def init_db():
     conn = db()
@@ -499,7 +592,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 def auth_box(box_id: str, token: str):
     conn = db()
     row = conn.execute(
@@ -510,10 +602,10 @@ def auth_box(box_id: str, token: str):
 
     if not row:
         return None
-    if row["token"] != token:
+    # constant-time compare
+    if not hmac.compare_digest(str(row["token"]), str(token)):
         return None
     return {"box_id": row["box_id"], "paired_to": row["paired_to"]}
-
 
 def prune_queue(to_box: str):
     """
@@ -559,10 +651,14 @@ def prune_queue(to_box: str):
 
     conn.close()
 
-
 def create_message(to_box: str, from_source: str, msg_type: str, msg_text: str = None, msg_event: str = None):
     msg_id = secrets.token_hex(8)
     now = int(time.time())
+
+    if msg_text is not None:
+        msg_text = msg_text.strip()
+        if len(msg_text) > MAX_TEXT_LEN:
+            msg_text = msg_text[:MAX_TEXT_LEN]
 
     conn = db()
     conn.execute(
@@ -577,7 +673,6 @@ def create_message(to_box: str, from_source: str, msg_type: str, msg_text: str =
 
     prune_queue(to_box)
     return msg_id
-
 
 try:
     init_db()
@@ -594,59 +689,72 @@ def root():
         return redirect(url_for("send_page"))
     return redirect(url_for("login_page"))
 
-
 @app.get("/login")
 def login_page():
     return render_template_string(LOGIN_HTML)
 
-
 @app.post("/login")
 def login_post():
-    pwd = request.form.get("password", "")
-    if pwd == WEB_PASSWORD:
-        session["logged_in"] = True
-        return redirect(url_for("send_page"))
-    return render_template_string(LOGIN_HTML, error="Wrong password")
+    # rate limit login attempts
+    ip = client_ip()
+    if not _rate_ok(_login_attempts, ip, LOGIN_LIMIT, LOGIN_WINDOW_S):
+        return render_template_string(LOGIN_HTML, error="Too many attempts. Try again later."), 429
 
+    verify_csrf()
+
+    pwd = (request.form.get("password", "") or "").strip()
+    if hmac.compare_digest(pwd, WEB_PASSWORD):
+        # mitigate session fixation
+        old_csrf = session.get("csrf_token")
+        session.clear()
+        session["logged_in"] = True
+        session["csrf_token"] = old_csrf or secrets.token_urlsafe(24)
+        return redirect(url_for("send_page"))
+
+    return render_template_string(LOGIN_HTML, error="Wrong password"), 401
 
 @app.get("/send")
 def send_page():
-    if not session.get("logged_in"):
+    if not require_login():
         return redirect(url_for("login_page"))
     return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID)
 
-
 @app.post("/send")
 def send_post():
-    if not session.get("logged_in"):
+    if not require_login():
         return redirect(url_for("login_page"))
 
-    target = request.form.get("target", "")
+    ip = client_ip()
+    if not _rate_ok(_send_attempts, ip, SEND_LIMIT, SEND_WINDOW_S):
+        return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status_text="Rate limited. Try again."), 429
+
+    verify_csrf()
+
+    target = (request.form.get("target", "") or "").strip()
     text = (request.form.get("text", "") or "").strip()
     event = (request.form.get("event", "") or "").strip()
 
     if target not in (BOX1_ID, BOX2_ID):
-        return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status_text="Invalid target")
+        return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status_text="Invalid target"), 400
 
     if event:
         if event not in ("heartbeat", "rainbow", "breathe", "ping"):
-            return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status_text="Invalid event")
+            return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status_text="Invalid event"), 400
         msg_id = create_message(target, "web", "event", msg_event=event)
         return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, msg_id=msg_id, status_text="SENT")
 
     if not text:
-        return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status_text="Type a message first")
+        return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status_text="Type a message first"), 400
 
     msg_id = create_message(target, "web", "text", msg_text=text)
     return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, msg_id=msg_id, status_text="SENT")
 
-
 @app.get("/status")
 def web_status():
-    if not session.get("logged_in"):
+    if not require_login():
         abort(401)
 
-    msg_id = request.args.get("msg_id", "")
+    msg_id = (request.args.get("msg_id", "") or "").strip()
     if not msg_id:
         return jsonify({"ok": False, "error": "missing_msg_id"}), 400
 
@@ -675,18 +783,17 @@ def web_status():
 @app.post("/api/register")
 def api_register():
     data = request.get_json(force=True, silent=True) or {}
-    box_id = data.get("box_id", "")
-    token = data.get("token", "")
+    box_id = (data.get("box_id", "") or "").strip()
+    token = (data.get("token", "") or "").strip()
     info = auth_box(box_id, token)
     if not info:
         return jsonify({"ok": False, "error": "auth_failed"}), 401
     return jsonify({"ok": True, "paired_to": info["paired_to"]})
 
-
 @app.get("/api/pending_count")
 def api_pending_count():
-    box_id = request.args.get("box_id", "")
-    token = request.args.get("token", "")
+    box_id = (request.args.get("box_id", "") or "").strip()
+    token = (request.args.get("token", "") or "").strip()
     info = auth_box(box_id, token)
     if not info:
         return jsonify({"ok": False, "error": "auth_failed"}), 401
@@ -699,11 +806,10 @@ def api_pending_count():
     conn.close()
     return jsonify({"ok": True, "count": row["c"]})
 
-
 @app.get("/api/check")
 def api_check():
-    box_id = request.args.get("box_id", "")
-    token = request.args.get("token", "")
+    box_id = (request.args.get("box_id", "") or "").strip()
+    token = (request.args.get("token", "") or "").strip()
     info = auth_box(box_id, token)
     if not info:
         return jsonify({"ok": False, "error": "auth_failed"}), 401
@@ -750,13 +856,12 @@ def api_check():
         "seen_at": row2["seen_at"],
     })
 
-
 @app.post("/api/ack")
 def api_ack():
     data = request.get_json(force=True, silent=True) or {}
-    box_id = data.get("box_id", "")
-    token = data.get("token", "")
-    msg_id = data.get("msg_id", "")
+    box_id = (data.get("box_id", "") or "").strip()
+    token = (data.get("token", "") or "").strip()
+    msg_id = (data.get("msg_id", "") or "").strip()
 
     info = auth_box(box_id, token)
     if not info:
@@ -770,7 +875,7 @@ def api_ack():
 
     if not row:
         conn.close()
-        return jsonify({"ok": True})
+        return jsonify({"ok": True})  # idempotent
 
     if row["to_box"] != box_id:
         conn.close()
@@ -787,12 +892,11 @@ def api_ack():
     prune_queue(box_id)
     return jsonify({"ok": True})
 
-
 @app.post("/api/send_event")
 def api_send_event():
     data = request.get_json(force=True, silent=True) or {}
-    box_id = data.get("box_id", "")
-    token = data.get("token", "")
+    box_id = (data.get("box_id", "") or "").strip()
+    token = (data.get("token", "") or "").strip()
     event = (data.get("event", "") or "").strip()
 
     info = auth_box(box_id, token)
@@ -807,11 +911,9 @@ def api_send_event():
     msg_id = create_message(target, "device", "event", msg_event=event)
     return jsonify({"ok": True, "sent_to": target, "msg_id": msg_id})
 
-
 @app.get("/health")
 def health():
     return jsonify({"ok": True})
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
