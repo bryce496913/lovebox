@@ -4,7 +4,10 @@ import time
 import secrets
 import hmac
 from collections import deque
+
 from flask import Flask, request, jsonify, redirect, url_for, session, render_template_string, abort
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 
 # =========================
 # CONFIG (from Environment)
@@ -30,6 +33,7 @@ LOGIN_WINDOW_S = 10 * 60  # 10 minutes
 SEND_LIMIT = 60           # requests
 SEND_WINDOW_S = 60        # 60 seconds
 
+
 # =========================
 # INLINE HTML (NO TEMPLATES)
 # =========================
@@ -42,16 +46,16 @@ THEME_HEAD = """
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root{
-      --bg: #07060a;          /* near-black */
-      --panel: #0f0b16;       /* dark purple-black */
+      --bg: #07060a;
+      --panel: #0f0b16;
       --panel2: #120d1c;
       --text: #ffffff;
       --muted: rgba(255,255,255,.72);
       --muted2: rgba(255,255,255,.55);
       --border: rgba(255,255,255,.10);
 
-      --purple: #7c3aed;      /* violet */
-      --pink: #ff4fd8;        /* neon pink */
+      --purple: #7c3aed;
+      --pink: #ff4fd8;
       --pink2:#ff2fbf;
 
       --ok: #22c55e;
@@ -331,7 +335,6 @@ SEND_HTML = f"""<!doctype html>
     </div>
 
     <div class="grid">
-      <!-- LEFT: Message -->
       <div class="card">
         <h2>Message</h2>
         <div class="sub">Pick a box, write a message, drop an emoji tag, send.</div>
@@ -390,7 +393,6 @@ SEND_HTML = f"""<!doctype html>
         {{% endif %}}
       </div>
 
-      <!-- RIGHT: Events -->
       <div class="card">
         <h2>Quick Events</h2>
         <div class="sub">Send a quick animation trigger.</div>
@@ -472,7 +474,9 @@ app = Flask(__name__)
 app.secret_key = APP_SECRET
 app.config["MAX_CONTENT_LENGTH"] = MAX_FORM_LEN
 
-# Secure cookies (Render uses HTTPS; keep local dev usable)
+# Respect Render proxy headers (scheme, ip)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
 IS_RENDER = bool(os.environ.get("RENDER")) or bool(os.environ.get("RENDER_SERVICE_ID"))
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
@@ -480,14 +484,25 @@ app.config["SESSION_COOKIE_SECURE"] = True if IS_RENDER else False
 
 
 # =========================
+# Force HTTPS on Render (prevents Secure-cookie issues)
+# =========================
+@app.before_request
+def force_https_on_render():
+    if not IS_RENDER:
+        return
+    proto = request.headers.get("X-Forwarded-Proto", "")
+    if proto and proto != "https":
+        url = request.url.replace("http://", "https://", 1)
+        return redirect(url, code=301)
+
+
+# =========================
 # Simple in-memory rate limiters
-# (fine for Render free plan; resets on deploy)
 # =========================
 _login_attempts = {}  # ip -> deque[timestamps]
 _send_attempts = {}   # ip -> deque[timestamps]
 
 def client_ip():
-    # Render/proxies typically send X-Forwarded-For
     xff = request.headers.get("X-Forwarded-For", "")
     if xff:
         return xff.split(",")[0].strip()
@@ -499,7 +514,6 @@ def _rate_ok(bucket, key, limit, window_s):
     if dq is None:
         dq = deque()
         bucket[key] = dq
-    # prune old
     while dq and (now - dq[0] > window_s):
         dq.popleft()
     if len(dq) >= limit:
@@ -508,13 +522,11 @@ def _rate_ok(bucket, key, limit, window_s):
     return True
 
 def require_login():
-    if not session.get("logged_in"):
-        return False
-    return True
+    return bool(session.get("logged_in"))
 
 
 # =========================
-# CSRF
+# CSRF (soft-fail: re-render with message)
 # =========================
 def ensure_csrf():
     tok = session.get("csrf_token")
@@ -523,15 +535,16 @@ def ensure_csrf():
         session["csrf_token"] = tok
     return tok
 
-def verify_csrf():
-    form_tok = (request.form.get("csrf_token") or "").strip()
-    sess_tok = (session.get("csrf_token") or "").strip()
-    if (not form_tok) or (not sess_tok) or (not hmac.compare_digest(form_tok, sess_tok)):
-        abort(400)
-
 @app.context_processor
 def inject_csrf():
     return {"csrf_token": ensure_csrf()}
+
+def csrf_valid():
+    form_tok = (request.form.get("csrf_token") or "").strip()
+    sess_tok = (session.get("csrf_token") or "").strip()
+    if not form_tok or not sess_tok:
+        return False
+    return hmac.compare_digest(form_tok, sess_tok)
 
 
 # =========================
@@ -539,7 +552,6 @@ def inject_csrf():
 # =========================
 @app.after_request
 def add_security_headers(resp):
-    # avoid caching auth pages
     if request.path in ("/login", "/send"):
         resp.headers["Cache-Control"] = "no-store"
 
@@ -602,16 +614,11 @@ def auth_box(box_id: str, token: str):
 
     if not row:
         return None
-    # constant-time compare
     if not hmac.compare_digest(str(row["token"]), str(token)):
         return None
     return {"box_id": row["box_id"], "paired_to": row["paired_to"]}
 
 def prune_queue(to_box: str):
-    """
-    Keep total messages for to_box <= MAX_QUEUE.
-    Delete oldest SEEN first, then oldest overall if needed.
-    """
     conn = db()
     total = conn.execute(
         "SELECT COUNT(*) AS c FROM messages WHERE to_box=?",
@@ -695,20 +702,22 @@ def login_page():
 
 @app.post("/login")
 def login_post():
-    # rate limit login attempts
     ip = client_ip()
     if not _rate_ok(_login_attempts, ip, LOGIN_LIMIT, LOGIN_WINDOW_S):
         return render_template_string(LOGIN_HTML, error="Too many attempts. Try again later."), 429
 
-    verify_csrf()
+    # Soft CSRF fail: re-render with fresh token + message (no generic Bad Request page)
+    if not csrf_valid():
+        session["csrf_token"] = secrets.token_urlsafe(24)
+        return render_template_string(LOGIN_HTML, error="Session expired. Refresh and try again."), 400
 
     pwd = (request.form.get("password", "") or "").strip()
     if hmac.compare_digest(pwd, WEB_PASSWORD):
-        # mitigate session fixation
-        old_csrf = session.get("csrf_token")
+        # mitigate session fixation: keep csrf but clear other session
+        csrf = session.get("csrf_token")
         session.clear()
         session["logged_in"] = True
-        session["csrf_token"] = old_csrf or secrets.token_urlsafe(24)
+        session["csrf_token"] = csrf or secrets.token_urlsafe(24)
         return redirect(url_for("send_page"))
 
     return render_template_string(LOGIN_HTML, error="Wrong password"), 401
@@ -728,7 +737,9 @@ def send_post():
     if not _rate_ok(_send_attempts, ip, SEND_LIMIT, SEND_WINDOW_S):
         return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status_text="Rate limited. Try again."), 429
 
-    verify_csrf()
+    if not csrf_valid():
+        session["csrf_token"] = secrets.token_urlsafe(24)
+        return render_template_string(SEND_HTML, box1=BOX1_ID, box2=BOX2_ID, status_text="Session expired. Refresh and try again."), 400
 
     target = (request.form.get("target", "") or "").strip()
     text = (request.form.get("text", "") or "").strip()
@@ -875,7 +886,7 @@ def api_ack():
 
     if not row:
         conn.close()
-        return jsonify({"ok": True})  # idempotent
+        return jsonify({"ok": True})
 
     if row["to_box"] != box_id:
         conn.close()
